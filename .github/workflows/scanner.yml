@@ -24,109 +24,44 @@ jobs:
           COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
         run: python scanner.py
 
-      - name: Apply research universe filters
+      - name: Show result
         run: |
+          echo "========================================"
+          echo "BASE PUMP LAB RESULT"
+          echo "========================================"
+
           python - <<'PY'
           import json
-          import pandas as pd
 
-          path = "data/base_research.json"
+          with open(
+              "data/base_research.json",
+              "r",
+              encoding="utf-8"
+          ) as f:
+              data = json.load(f)
 
-          with open(path, "r", encoding="utf-8") as f:
-              obj = json.load(f)
-
-          rows = obj.get("records", []) if isinstance(obj, dict) else obj
-
-          if not isinstance(rows, list):
-              rows = []
-
-          excluded = (
-              "USDC",
-              "USDBC",
-              "DAI",
-              "USDT",
-              "USDS",
-              "USDE",
-              "WETH",
-              "ETH",
-              "CBBTC",
-              "WBTC",
-              "BTC"
+          print(
+              f"Source pools: {data.get('source_pool_count')}"
           )
 
-          filtered = []
-
-          for row in rows:
-              mc = row.get("market_cap_usd")
-              liquidity = row.get("reserve_usd")
-              name = str(row.get("name") or "").upper()
-
-              try:
-                  mc = float(mc)
-                  liquidity = float(liquidity)
-              except (TypeError, ValueError):
-                  continue
-
-              # Market Cap: $1M تا $100M
-              if mc < 1_000_000 or mc > 100_000_000:
-                  continue
-
-              # حداقل نقدینگی: $100K
-              if liquidity < 100_000:
-                  continue
-
-              # حذف دارایی‌های سنگین و Stablecoinها
-              if any(symbol in name for symbol in excluded):
-                  continue
-
-              filtered.append(row)
-
-          if isinstance(obj, dict):
-              obj["records"] = filtered
-              obj["count"] = len(filtered)
-
-              obj["research_filter"] = {
-                  "market_cap_min_usd": 1_000_000,
-                  "market_cap_max_usd": 100_000_000,
-                  "liquidity_min_usd": 100_000,
-                  "excluded_assets": list(excluded)
-              }
-
-          else:
-              obj = filtered
-
-          with open(path, "w", encoding="utf-8") as f:
-              json.dump(
-                  obj,
-                  f,
-                  ensure_ascii=False,
-                  indent=2,
-                  allow_nan=False
-              )
-
-          pd.DataFrame(filtered).to_csv(
-              "data/base_research.csv",
-              index=False
+          print(
+              f"Pages used: {data.get('pages_used')}"
           )
 
-          print("========================================")
-          print("RESEARCH FILTER")
-          print("========================================")
-          print(f"Input records: {len(rows)}")
-          print(f"Filtered records: {len(filtered)}")
-          print("Market Cap: $1M - $100M")
-          print("Minimum Liquidity: $100K")
-          print("========================================")
+          print(
+              f"Filtered pools: {data.get('count')}"
+          )
+
+          print(
+              "========================================"
+          )
           PY
 
-      - name: Show generated files
-        run: |
           echo "========================================"
           echo "GENERATED FILES"
           echo "========================================"
-          ls -lh data || true
-          echo "========================================"
-          echo "Scanner finished"
+
+          ls -lh data
 
       - name: Upload research data
         uses: actions/upload-artifact@v4
@@ -134,4 +69,3 @@ jobs:
           name: base-research-data
           path: |
             data/base_research.json
-            data/base_research.csv
