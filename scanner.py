@@ -1,3 +1,4 @@
+```python
 import os
 import time
 import json
@@ -22,16 +23,27 @@ HEADERS = {
 
 NETWORK = "base"
 
-MAX_POOLS = 5
-OHLCV_LIMIT = 50
+# ------------------------------------------------------------
+# PUMP POOL FILTERS
+# ------------------------------------------------------------
 
+MIN_MARKET_CAP = 100_000
+MAX_MARKET_CAP = 50_000_000
+MIN_LIQUIDITY = 100_000
+
+# Number of pools finally researched
+MAX_POOLS = 5
+
+OHLCV_LIMIT = 50
 REQUEST_DELAY = 0.7
+
 
 # ============================================================
 # HTTP
 # ============================================================
 
 def get(url, params=None):
+
     r = requests.get(
         url,
         headers=HEADERS,
@@ -40,8 +52,11 @@ def get(url, params=None):
     )
 
     if r.status_code == 429:
+
         print("Rate limit reached. Waiting...")
+
         time.sleep(10)
+
         r = requests.get(
             url,
             headers=HEADERS,
@@ -50,6 +65,7 @@ def get(url, params=None):
         )
 
     r.raise_for_status()
+
     return r.json()
 
 
@@ -58,7 +74,9 @@ def get(url, params=None):
 # ============================================================
 
 def safe_float(value):
+
     try:
+
         if value is None:
             return None
 
@@ -70,10 +88,12 @@ def safe_float(value):
         return value
 
     except Exception:
+
         return None
 
 
 def pct_change(a, b):
+
     if a is None or b is None or b == 0:
         return None
 
@@ -85,8 +105,12 @@ def pct_change(a, b):
 # ============================================================
 
 def get_base_pools():
+
     """
     Retrieves active pools on Base.
+
+    Important:
+    Filtering is performed BEFORE MAX_POOLS selection.
     """
 
     url = f"{ONCHAIN_URL}/networks/{NETWORK}/pools"
@@ -99,7 +123,107 @@ def get_base_pools():
 
     data = get(url, params)
 
-    return data.get("data", [])
+    pools = data.get("data", [])
+
+    print(f"Pools received from CoinGecko: {len(pools)}")
+
+    filtered = []
+
+    removed_mc_low = 0
+    removed_mc_high = 0
+    removed_mc_null = 0
+    removed_liquidity = 0
+
+    for pool in pools:
+
+        attrs = pool.get("attributes", {})
+
+        market_cap = safe_float(
+            attrs.get("market_cap_usd")
+        )
+
+        liquidity = safe_float(
+            attrs.get("reserve_in_usd")
+        )
+
+        # ----------------------------------------------------
+        # Market cap must exist
+        # ----------------------------------------------------
+
+        if market_cap is None:
+
+            removed_mc_null += 1
+
+            continue
+
+        # ----------------------------------------------------
+        # Minimum market cap
+        # ----------------------------------------------------
+
+        if market_cap < MIN_MARKET_CAP:
+
+            removed_mc_low += 1
+
+            continue
+
+        # ----------------------------------------------------
+        # Maximum market cap
+        # ----------------------------------------------------
+
+        if market_cap > MAX_MARKET_CAP:
+
+            removed_mc_high += 1
+
+            continue
+
+        # ----------------------------------------------------
+        # Minimum liquidity
+        # ----------------------------------------------------
+
+        if liquidity is None or liquidity < MIN_LIQUIDITY:
+
+            removed_liquidity += 1
+
+            continue
+
+        filtered.append(pool)
+
+    print("=" * 60)
+    print("POOL FILTER RESULTS")
+    print("=" * 60)
+
+    print(
+        f"MC < ${MIN_MARKET_CAP:,}: "
+        f"{removed_mc_low}"
+    )
+
+    print(
+        f"MC > ${MAX_MARKET_CAP:,}: "
+        f"{removed_mc_high}"
+    )
+
+    print(
+        f"MC missing/null: "
+        f"{removed_mc_null}"
+    )
+
+    print(
+        f"Liquidity < ${MIN_LIQUIDITY:,}: "
+        f"{removed_liquidity}"
+    )
+
+    print(
+        f"Pools passing filters: "
+        f"{len(filtered)}"
+    )
+
+    print("=" * 60)
+
+    # --------------------------------------------------------
+    # Only now select MAX_POOLS
+    # --------------------------------------------------------
+
+    return filtered[:MAX_POOLS]
 
 
 # ============================================================
@@ -107,29 +231,44 @@ def get_base_pools():
 # ============================================================
 
 def parse_pool(pool):
+
     attrs = pool.get("attributes", {})
 
     return {
-        "pool_id": pool.get("id"),
 
-        "name": attrs.get("name"),
+        "pool_id":
+            pool.get("id"),
 
-        "address": attrs.get("address"),
+        "name":
+            attrs.get("name"),
+
+        "address":
+            attrs.get("address"),
 
         "base_token_price_usd":
-            safe_float(attrs.get("base_token_price_usd")),
+            safe_float(
+                attrs.get("base_token_price_usd")
+            ),
 
         "quote_token_price_usd":
-            safe_float(attrs.get("quote_token_price_usd")),
+            safe_float(
+                attrs.get("quote_token_price_usd")
+            ),
 
         "fdv_usd":
-            safe_float(attrs.get("fdv_usd")),
+            safe_float(
+                attrs.get("fdv_usd")
+            ),
 
         "market_cap_usd":
-            safe_float(attrs.get("market_cap_usd")),
+            safe_float(
+                attrs.get("market_cap_usd")
+            ),
 
         "reserve_usd":
-            safe_float(attrs.get("reserve_in_usd")),
+            safe_float(
+                attrs.get("reserve_in_usd")
+            ),
 
         "volume_5m":
             safe_float(
@@ -153,49 +292,69 @@ def parse_pool(pool):
 
         "price_change_5m":
             safe_float(
-                attrs.get("price_change_percentage", {}).get("m5")
+                attrs.get(
+                    "price_change_percentage",
+                    {}
+                ).get("m5")
             ),
 
         "price_change_1h":
             safe_float(
-                attrs.get("price_change_percentage", {}).get("h1")
+                attrs.get(
+                    "price_change_percentage",
+                    {}
+                ).get("h1")
             ),
 
         "price_change_6h":
             safe_float(
-                attrs.get("price_change_percentage", {}).get("h6")
+                attrs.get(
+                    "price_change_percentage",
+                    {}
+                ).get("h6")
             ),
 
         "price_change_24h":
             safe_float(
-                attrs.get("price_change_percentage", {}).get("h24")
+                attrs.get(
+                    "price_change_percentage",
+                    {}
+                ).get("h24")
             ),
 
         "tx_5m":
-            safe_float(
-                attrs.get("transactions", {})
-                .get("m5", {})
-                .get("buys", 0)
-            ) or 0
+            (
+                safe_float(
+                    attrs.get("transactions", {})
+                    .get("m5", {})
+                    .get("buys", 0)
+                ) or 0
+            )
             +
-            safe_float(
-                attrs.get("transactions", {})
-                .get("m5", {})
-                .get("sells", 0)
-            ) or 0,
+            (
+                safe_float(
+                    attrs.get("transactions", {})
+                    .get("m5", {})
+                    .get("sells", 0)
+                ) or 0
+            ),
 
         "tx_1h":
-            safe_float(
-                attrs.get("transactions", {})
-                .get("h1", {})
-                .get("buys", 0)
-            ) or 0
+            (
+                safe_float(
+                    attrs.get("transactions", {})
+                    .get("h1", {})
+                    .get("buys", 0)
+                ) or 0
+            )
             +
-            safe_float(
-                attrs.get("transactions", {})
-                .get("h1", {})
-                .get("sells", 0)
-            ) or 0,
+            (
+                safe_float(
+                    attrs.get("transactions", {})
+                    .get("h1", {})
+                    .get("sells", 0)
+                ) or 0
+            ),
 
         "buys_5m":
             safe_float(
@@ -234,38 +393,67 @@ def parse_pool(pool):
 def add_volume_features(row):
 
     mc = row.get("market_cap_usd")
+
     liquidity = row.get("reserve_usd")
 
     v5 = row.get("volume_5m")
+
     v1 = row.get("volume_1h")
+
     v6 = row.get("volume_6h")
+
     v24 = row.get("volume_24h")
 
     # Volume / Market Cap
+
     if mc and mc > 0:
-        row["volume_mc_5m"] = v5 / mc if v5 else None
-        row["volume_mc_1h"] = v1 / mc if v1 else None
-        row["volume_mc_24h"] = v24 / mc if v24 else None
+
+        row["volume_mc_5m"] = (
+            v5 / mc if v5 else None
+        )
+
+        row["volume_mc_1h"] = (
+            v1 / mc if v1 else None
+        )
+
+        row["volume_mc_24h"] = (
+            v24 / mc if v24 else None
+        )
+
     else:
+
         row["volume_mc_5m"] = None
+
         row["volume_mc_1h"] = None
+
         row["volume_mc_24h"] = None
 
     # Volume / Liquidity
+
     if liquidity and liquidity > 0:
+
         row["volume_liquidity_1h"] = (
-            v1 / liquidity if v1 else None
+            v1 / liquidity
+            if v1
+            else None
         )
 
         row["volume_liquidity_24h"] = (
-            v24 / liquidity if v24 else None
+            v24 / liquidity
+            if v24
+            else None
         )
+
     else:
+
         row["volume_liquidity_1h"] = None
+
         row["volume_liquidity_24h"] = None
 
     # Approximate volume acceleration
+
     if v1 and v6 and v6 > 0:
+
         expected_1h = v6 / 6.0
 
         row["volume_acceleration"] = (
@@ -273,21 +461,37 @@ def add_volume_features(row):
         )
 
     else:
+
         row["volume_acceleration"] = None
 
     # Buy / Sell imbalance
+
     buys = row.get("buys_5m", 0)
+
     sells = row.get("sells_5m", 0)
 
     total = buys + sells
 
     if total > 0:
-        row["buy_ratio_5m"] = buys / total
-        row["sell_ratio_5m"] = sells / total
-        row["buy_sell_ratio_5m"] = buys / max(sells, 1)
+
+        row["buy_ratio_5m"] = (
+            buys / total
+        )
+
+        row["sell_ratio_5m"] = (
+            sells / total
+        )
+
+        row["buy_sell_ratio_5m"] = (
+            buys / max(sells, 1)
+        )
+
     else:
+
         row["buy_ratio_5m"] = None
+
         row["sell_ratio_5m"] = None
+
         row["buy_sell_ratio_5m"] = None
 
     return row
@@ -311,6 +515,7 @@ def get_ohlcv(pool_address):
     }
 
     try:
+
         data = get(url, params)
 
         rows = (
@@ -321,6 +526,7 @@ def get_ohlcv(pool_address):
         )
 
         if not rows:
+
             return None
 
         df = pd.DataFrame(
@@ -335,7 +541,9 @@ def get_ohlcv(pool_address):
             ]
         )
 
-        df = df.sort_values("timestamp")
+        df = df.sort_values(
+            "timestamp"
+        )
 
         for col in [
             "open",
@@ -344,6 +552,7 @@ def get_ohlcv(pool_address):
             "close",
             "volume"
         ]:
+
             df[col] = pd.to_numeric(
                 df[col],
                 errors="coerce"
@@ -354,7 +563,8 @@ def get_ohlcv(pool_address):
     except Exception as e:
 
         print(
-            f"OHLCV failed for {pool_address}: {e}"
+            f"OHLCV failed for "
+            f"{pool_address}: {e}"
         )
 
         return None
@@ -389,14 +599,27 @@ def bollinger(df, period=20):
     )
 
     df["bb_width"] = (
-        (df["bb_upper"] - df["bb_lower"])
-        / df["bb_mid"]
+        (
+            df["bb_upper"]
+            -
+            df["bb_lower"]
+        )
+        /
+        df["bb_mid"]
     )
 
     df["bb_percent_b"] = (
-        (close - df["bb_lower"])
+        (
+            close
+            -
+            df["bb_lower"]
+        )
         /
-        (df["bb_upper"] - df["bb_lower"])
+        (
+            df["bb_upper"]
+            -
+            df["bb_lower"]
+        )
     )
 
     return df
@@ -409,6 +632,7 @@ def bollinger(df, period=20):
 def ichimoku(df):
 
     high = df["high"]
+
     low = df["low"]
 
     conversion_high = (
@@ -420,7 +644,8 @@ def ichimoku(df):
     )
 
     df["tenkan"] = (
-        conversion_high +
+        conversion_high
+        +
         conversion_low
     ) / 2
 
@@ -433,12 +658,17 @@ def ichimoku(df):
     )
 
     df["kijun"] = (
-        base_high +
+        base_high
+        +
         base_low
     ) / 2
 
     df["senkou_a"] = (
-        (df["tenkan"] + df["kijun"]) / 2
+        (
+            df["tenkan"]
+            +
+            df["kijun"]
+        ) / 2
     )
 
     span_b_high = (
@@ -450,7 +680,8 @@ def ichimoku(df):
     )
 
     df["senkou_b"] = (
-        span_b_high +
+        span_b_high
+        +
         span_b_low
     ) / 2
 
@@ -464,32 +695,46 @@ def ichimoku(df):
 def candle_features(df):
 
     df["body"] = (
-        df["close"] - df["open"]
+        df["close"]
+        -
+        df["open"]
     ).abs()
 
     df["range"] = (
-        df["high"] - df["low"]
+        df["high"]
+        -
+        df["low"]
     )
 
     df["upper_wick"] = (
         df["high"]
         -
-        df[["open", "close"]].max(axis=1)
+        df[["open", "close"]].max(
+            axis=1
+        )
     )
 
     df["lower_wick"] = (
-        df[["open", "close"]].min(axis=1)
+        df[["open", "close"]].min(
+            axis=1
+        )
         -
         df["low"]
     )
 
     df["body_ratio"] = (
-        df["body"] /
-        df["range"].replace(0, pd.NA)
+        df["body"]
+        /
+        df["range"].replace(
+            0,
+            pd.NA
+        )
     )
 
     df["green"] = (
-        df["close"] > df["open"]
+        df["close"]
+        >
+        df["open"]
     )
 
     return df
@@ -502,13 +747,17 @@ def candle_features(df):
 def extract_latest_features(df):
 
     if df is None or len(df) < 55:
+
         return {}
 
     df = bollinger(df)
+
     df = ichimoku(df)
+
     df = candle_features(df)
 
     latest = df.iloc[-1]
+
     previous = df.iloc[-2]
 
     result = {}
@@ -526,19 +775,23 @@ def extract_latest_features(df):
     )
 
     result["bb_squeeze"] = (
-        latest["bb_width"] <
-        df["bb_width"].rolling(50).quantile(
-            0.20
-        ).iloc[-1]
+        latest["bb_width"]
+        <
+        df["bb_width"]
+        .rolling(50)
+        .quantile(0.20)
+        .iloc[-1]
     )
 
     result["above_kijun"] = (
-        latest["close"] >
+        latest["close"]
+        >
         latest["kijun"]
     )
 
     result["above_cloud"] = (
-        latest["close"] >
+        latest["close"]
+        >
         max(
             latest["senkou_a"],
             latest["senkou_b"]
@@ -546,7 +799,8 @@ def extract_latest_features(df):
     )
 
     result["tenkan_above_kijun"] = (
-        latest["tenkan"] >
+        latest["tenkan"]
+        >
         latest["kijun"]
     )
 
@@ -559,13 +813,21 @@ def extract_latest_features(df):
     )
 
     result["range_expansion"] = (
-        latest["range"] >
-        df["range"].rolling(20).mean().iloc[-1]
+        latest["range"]
+        >
+        df["range"]
+        .rolling(20)
+        .mean()
+        .iloc[-1]
     )
 
     result["volume_expansion"] = (
-        latest["volume"] >
-        df["volume"].rolling(20).mean().iloc[-1] * 2
+        latest["volume"]
+        >
+        df["volume"]
+        .rolling(20)
+        .mean()
+        .iloc[-1] * 2
     )
 
     result["price_change_5c"] = safe_float(
@@ -585,6 +847,7 @@ def extract_latest_features(df):
 def research_score(row):
 
     score = 0
+
     reasons = []
 
     # IMPORTANT:
@@ -592,50 +855,95 @@ def research_score(row):
     # It is only a research ranking.
 
     if (
-        row.get("volume_mc_1h") is not None
-        and row["volume_mc_1h"] > 0.05
+        row.get("volume_mc_1h")
+        is not None
+        and
+        row["volume_mc_1h"] > 0.05
     ):
+
         score += 1
-        reasons.append("high_volume_mc")
+
+        reasons.append(
+            "high_volume_mc"
+        )
 
     if (
-        row.get("volume_acceleration") is not None
-        and row["volume_acceleration"] > 2
+        row.get("volume_acceleration")
+        is not None
+        and
+        row["volume_acceleration"] > 2
     ):
+
         score += 1
-        reasons.append("volume_acceleration")
+
+        reasons.append(
+            "volume_acceleration"
+        )
 
     if (
-        row.get("buy_ratio_5m") is not None
-        and row["buy_ratio_5m"] > 0.60
+        row.get("buy_ratio_5m")
+        is not None
+        and
+        row["buy_ratio_5m"] > 0.60
     ):
+
         score += 1
-        reasons.append("buy_pressure")
+
+        reasons.append(
+            "buy_pressure"
+        )
 
     if (
-        row.get("price_change_1h") is not None
-        and 0 < row["price_change_1h"] < 15
+        row.get("price_change_1h")
+        is not None
+        and
+        0
+        <
+        row["price_change_1h"]
+        <
+        15
     ):
+
         score += 1
-        reasons.append("controlled_momentum")
+
+        reasons.append(
+            "controlled_momentum"
+        )
 
     if row.get("bb_squeeze"):
+
         score += 1
-        reasons.append("bb_squeeze")
+
+        reasons.append(
+            "bb_squeeze"
+        )
 
     if row.get("above_kijun"):
+
         score += 1
-        reasons.append("above_kijun")
+
+        reasons.append(
+            "above_kijun"
+        )
 
     if row.get("above_cloud"):
+
         score += 1
-        reasons.append("above_cloud")
+
+        reasons.append(
+            "above_cloud"
+        )
 
     if row.get("range_expansion"):
+
         score += 1
-        reasons.append("range_expansion")
+
+        reasons.append(
+            "range_expansion"
+        )
 
     row["research_score"] = score
+
     row["research_reasons"] = reasons
 
     return row
@@ -648,7 +956,24 @@ def research_score(row):
 def main():
 
     print("=" * 60)
-    print("BASE PUMP LAB SCANNER")
+
+    print(
+        "BASE PUMP LAB SCANNER"
+    )
+
+    print("=" * 60)
+
+    print(
+        f"Market Cap filter: "
+        f"${MIN_MARKET_CAP:,} - "
+        f"${MAX_MARKET_CAP:,}"
+    )
+
+    print(
+        f"Minimum Liquidity: "
+        f"${MIN_LIQUIDITY:,}"
+    )
+
     print("=" * 60)
 
     timestamp = datetime.now(
@@ -658,13 +983,14 @@ def main():
     pools = get_base_pools()
 
     print(
-        f"Pools received: {len(pools)}"
+        f"Pools selected for research: "
+        f"{len(pools)}"
     )
 
     records = []
 
     for i, pool in enumerate(
-        pools[:MAX_POOLS],
+        pools,
         start=1
     ):
 
@@ -672,14 +998,19 @@ def main():
 
             row = parse_pool(pool)
 
-            row = add_volume_features(row)
+            row = add_volume_features(
+                row
+            )
 
             pool_address = row["address"]
 
             if pool_address:
 
                 print(
-                    f"[{i}] {row.get('name')}"
+                    f"[{i}] "
+                    f"{row.get('name')} | "
+                    f"MC=${row.get('market_cap_usd'):,.0f} | "
+                    f"Liquidity=${row.get('reserve_usd'):,.0f}"
                 )
 
                 df = get_ohlcv(
@@ -692,11 +1023,17 @@ def main():
                     else {}
                 )
 
-                row.update(technical)
+                row.update(
+                    technical
+                )
 
-                row = research_score(row)
+                row = research_score(
+                    row
+                )
 
-                records.append(row)
+                records.append(
+                    row
+                )
 
             time.sleep(
                 REQUEST_DELAY
@@ -713,7 +1050,10 @@ def main():
         exist_ok=True
     )
 
+    # ========================================================
     # JSON
+    # ========================================================
+
     output_json = (
         "data/base_research.json"
     )
@@ -726,17 +1066,41 @@ def main():
 
         json.dump(
             {
-                "timestamp": timestamp,
-                "network": NETWORK,
-                "count": len(records),
-                "records": records
+                "timestamp":
+                    timestamp,
+
+                "network":
+                    NETWORK,
+
+                "filters": {
+                    "min_market_cap":
+                        MIN_MARKET_CAP,
+
+                    "max_market_cap":
+                        MAX_MARKET_CAP,
+
+                    "min_liquidity":
+                        MIN_LIQUIDITY
+                },
+
+                "count":
+                    len(records),
+
+                "records":
+                    records
             },
+
             f,
+
             ensure_ascii=False,
+
             indent=2
         )
 
+    # ========================================================
     # CSV
+    # ========================================================
+
     output_csv = (
         "data/base_research.csv"
     )
@@ -749,46 +1113,73 @@ def main():
     )
 
     print("=" * 60)
+
     print(
         f"Saved {len(records)} records"
     )
 
     print(output_json)
+
     print(output_csv)
 
-    # Top research candidates
+    # ========================================================
+    # TOP RESEARCH CANDIDATES
+    # ========================================================
+
     if records:
 
-        df = pd.DataFrame(records)
+        df = pd.DataFrame(
+            records
+        )
 
         columns = [
+
             "name",
+
             "market_cap_usd",
+
             "reserve_usd",
+
             "volume_24h",
+
             "volume_mc_1h",
+
             "volume_acceleration",
+
             "buy_ratio_5m",
+
             "price_change_1h",
+
             "research_score"
         ]
 
         available = [
-            c for c in columns
+
+            c
+
+            for c in columns
+
             if c in df.columns
         ]
 
-        print("\nTOP RESEARCH CANDIDATES")
+        print(
+            "\nTOP RESEARCH CANDIDATES"
+        )
 
         print(
+
             df.sort_values(
                 "research_score",
                 ascending=False
             )[available]
             .head(20)
-            .to_string(index=False)
+            .to_string(
+                index=False
+            )
         )
 
 
 if __name__ == "__main__":
+
     main()
+```
