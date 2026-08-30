@@ -1,4 +1,3 @@
-```yaml
 name: Base Pump Lab Test
 
 on:
@@ -20,9 +19,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Expand scan universe
-        run: sed -i 's/MAX_POOLS = 5/MAX_POOLS = 100/' scanner.py
-
       - name: Run scanner
         env:
           COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
@@ -39,10 +35,7 @@ jobs:
           with open(path, "r", encoding="utf-8") as f:
               obj = json.load(f)
 
-          if isinstance(obj, dict):
-              rows = obj.get("results", [])
-          else:
-              rows = obj
+          rows = obj.get("records", []) if isinstance(obj, dict) else obj
 
           if not isinstance(rows, list):
               rows = []
@@ -89,13 +82,14 @@ jobs:
               filtered.append(row)
 
           if isinstance(obj, dict):
-              obj["results"] = filtered
+              obj["records"] = filtered
+              obj["count"] = len(filtered)
 
               obj["research_filter"] = {
                   "market_cap_min_usd": 1_000_000,
                   "market_cap_max_usd": 100_000_000,
                   "liquidity_min_usd": 100_000,
-                  "source_pool_limit": 100
+                  "excluded_assets": list(excluded)
               }
 
           else:
@@ -118,8 +112,8 @@ jobs:
           print("========================================")
           print("RESEARCH FILTER")
           print("========================================")
-          print(f"Source pools: 100")
-          print(f"Filtered pools: {len(filtered)}")
+          print(f"Input records: {len(rows)}")
+          print(f"Filtered records: {len(filtered)}")
           print("Market Cap: $1M - $100M")
           print("Minimum Liquidity: $100K")
           print("========================================")
@@ -141,4 +135,3 @@ jobs:
           path: |
             data/base_research.json
             data/base_research.csv
-```
